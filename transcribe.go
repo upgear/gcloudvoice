@@ -136,7 +136,7 @@ func (c *Client) TranscribeURL(ctx context.Context, url, name string) (msgs []Me
 // It assumes `ffmpeg` is installed an in the $PATH.
 func splitWavChannels(in io.Reader, left, right io.Writer) error {
 	// If this fails the error msg will be lost b/c we are abusing
-	// stderr. However, the code to incorporate named pipes in not
+	// stderr. However, the code to incorporate named pipes is not
 	// worth the increased complexity IMO.
 	cmd := exec.Command("ffmpeg",
 		"-y",
