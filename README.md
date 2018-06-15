@@ -1,10 +1,12 @@
 # Google Speech Utilities
 
-Utilities to make working with Google Speech APIs easier.
+Utilities for transcribing dual-channel wav files via Google's Speech APIs.
 
 ## Usage
 
-We use this library in junction with Twilio recordings (b/c the twilio transcription add-ons at the time of writing are junk):
+We use this library in junction with Twilio recordings (b/c the twilio transcription add-ons at the time of writing are junk).
+
+An example Twilio ML response:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -13,7 +15,7 @@ We use this library in junction with Twilio recordings (b/c the twilio transcrip
 </Response>
 ```
 
-Because I am lazy, this library just calls out to the `ffmpeg` utility to split `.wav` files so we need to install it:
+Because I am lazy, this library just calls out to the `ffmpeg` tool to split `.wav` files so we need to install it:
 
 ```sh
 # On ubuntu:
