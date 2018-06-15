@@ -4,7 +4,7 @@ Utilities to make working with Google Speech APIs easier.
 
 ## Usage
 
-We use this library in junction with Twilio recordings (b/c the twilio transcription add-ons, at the time of writing, are junk):
+We use this library in junction with Twilio recordings (b/c the twilio transcription add-ons at the time of writing are junk):
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -13,7 +13,17 @@ We use this library in junction with Twilio recordings (b/c the twilio transcrip
 </Response>
 ```
 
-In the callback http handler:
+Because I am lazy, this library just calls out to the `ffmpeg` utility to split `.wav` files so we need to install it:
+
+```sh
+# On ubuntu:
+sudo add-apt-repository ppa:mc3man/trusty-media  
+sudo apt-get update  
+sudo apt-get install ffmpeg  
+```
+
+In the Twilio HTTP callback handler of your service:
+
 
 ```go
 // Transcribe the call.
