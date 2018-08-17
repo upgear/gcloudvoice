@@ -54,6 +54,8 @@ type Client struct {
 	StorageBucket         string
 	Storage               *storage.Client
 	Speech                *speech.Client
+	Phrases               []string
+	ProfanityFilter       bool
 }
 
 // TranscribeURL grabs a stereo `wav` file from an http url. It splits the
@@ -111,7 +113,7 @@ func (c *Client) TranscribeURL(ctx context.Context, url, name string) (msgs []Me
 	leftMsgs, rightMsgs := make(chan []Message), make(chan []Message)
 	var transcribeGrp errgroup.Group
 	transcribeGrp.Go(func() error {
-		msgs, err := transcribeChannel(ctx, c.Speech, gsPath(leftName), true)
+		msgs, err := transcribeChannel(ctx, c.Speech, gsPath(leftName), true, c.Phrases, c.ProfanityFilter)
 		if err != nil {
 			leftMsgs <- nil
 			return errors.Wrap(err, "left channel")
@@ -120,7 +122,7 @@ func (c *Client) TranscribeURL(ctx context.Context, url, name string) (msgs []Me
 		return nil
 	})
 	transcribeGrp.Go(func() error {
-		msgs, err := transcribeChannel(ctx, c.Speech, gsPath(rightName), false)
+		msgs, err := transcribeChannel(ctx, c.Speech, gsPath(rightName), false, c.Phrases, c.ProfanityFilter)
 		if err != nil {
 			rightMsgs <- nil
 			return errors.Wrap(err, "right channel")
@@ -175,13 +177,14 @@ func splitWavChannels(in io.Reader, left, right io.Writer) error {
 
 // transcribeChannel reaches out to google's speech to text api and transcribes
 // a single wav channel.
-func transcribeChannel(ctx context.Context, c *speech.Client, uri string, chn bool) ([]Message, error) {
+func transcribeChannel(ctx context.Context, c *speech.Client, uri string, chn bool, phrases []string, profanityFilter bool) ([]Message, error) {
 	op, err := c.LongRunningRecognize(ctx, &speechpb.LongRunningRecognizeRequest{
 		Config: &speechpb.RecognitionConfig{
 			Encoding:              speechpb.RecognitionConfig_LINEAR16,
 			SampleRateHertz:       8000,
 			LanguageCode:          "en-US",
 			EnableWordTimeOffsets: true,
+			ProfanityFilter:       profanityFilter,
 		},
 		Audio: &speechpb.RecognitionAudio{
 			AudioSource: &speechpb.RecognitionAudio_Uri{Uri: uri},

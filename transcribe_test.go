@@ -55,6 +55,7 @@ func TestTranscribeURL(t *testing.T) {
 		StorageBucket: cfg.StorageBucket,
 		Storage:       storage,
 		Speech:        speech,
+		//		Phrases:       []string{"test", "testing something"},
 		// KeepIntermediateFiles: true,
 	}
 	msgs, err := client.TranscribeURL(ctx, ts.URL, "test")
