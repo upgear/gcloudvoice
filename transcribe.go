@@ -50,12 +50,16 @@ func (s ByTime) Less(i, j int) bool { return s[i].Offset < s[j].Offset }
 
 // Client wraps google `storage` and `speech` clients.
 type Client struct {
+	// Set to true in order to store the original recording in google storage.
+	StoreOriginal bool
+	// Set to true to store the split recording files in google storage.
 	KeepIntermediateFiles bool
-	StorageBucket         string
-	Storage               *storage.Client
-	Speech                *speech.Client
-	Phrases               []string
-	ProfanityFilter       bool
+	// Google storage bucket to use.
+	StorageBucket   string
+	Storage         *storage.Client
+	Speech          *speech.Client
+	Phrases         []string
+	ProfanityFilter bool
 }
 
 // TranscribeURL grabs a stereo `wav` file from an http url. It splits the
@@ -74,6 +78,7 @@ func (c *Client) TranscribeURL(ctx context.Context, url, name string) (msgs []Me
 		name = path.Base(url)
 	}
 	name = strings.TrimSuffix(name, ".wav")
+	origName := name + ".wav"
 	leftName := name + ".left.wav"
 	rightName := name + ".right.wav"
 
@@ -91,9 +96,15 @@ func (c *Client) TranscribeURL(ctx context.Context, url, name string) (msgs []Me
 		}()
 	}
 
+	var origW io.Writer
+	if c.StoreOriginal {
+		origObj := bkt.Object(origName).NewWriter(ctx)
+		defer origObj.Close()
+		origW = origObj
+	}
 	leftObj := bkt.Object(leftName).NewWriter(ctx)
 	rightObj := bkt.Object(rightName).NewWriter(ctx)
-	if err := splitWavChannels(resp.Body, leftObj, rightObj); err != nil {
+	if err := splitWavChannels(resp.Body, origW, leftObj, rightObj); err != nil {
 		return nil, errors.Wrap(err, "splitting wav")
 	}
 
@@ -136,7 +147,7 @@ func (c *Client) TranscribeURL(ctx context.Context, url, name string) (msgs []Me
 
 // splitWavChannels splits a stereo `wav` format input into its two channels.
 // It assumes `ffmpeg` is installed an in the $PATH.
-func splitWavChannels(in io.Reader, left, right io.Writer) error {
+func splitWavChannels(in io.Reader, orig, left, right io.Writer) error {
 	// If this fails the error msg will be lost b/c we are abusing
 	// stderr. However, the code to incorporate named pipes is not
 	// worth the increased complexity IMO.
@@ -163,8 +174,14 @@ func splitWavChannels(in io.Reader, left, right io.Writer) error {
 		return errors.Wrapf(err, "starting command")
 	}
 
-	if _, err := io.Copy(stdin, in); err != nil {
-		return errors.Wrap(err, "copying stdin")
+	var w io.Writer
+	if orig != nil {
+		w = io.MultiWriter(stdin, orig)
+	} else {
+		w = stdin
+	}
+	if _, err := io.Copy(w, in); err != nil {
+		return errors.Wrap(err, "copying")
 	}
 	stdin.Close()
 

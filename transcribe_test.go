@@ -52,6 +52,7 @@ func TestTranscribeURL(t *testing.T) {
 	}
 
 	client := gcloudvoice.Client{
+		StoreOriginal: false,
 		StorageBucket: cfg.StorageBucket,
 		Storage:       storage,
 		Speech:        speech,
