@@ -28,6 +28,14 @@ import (
 	speechpb "google.golang.org/genproto/googleapis/cloud/speech/v1"
 )
 
+var (
+	// Define errors that the caller may choose to ignore.
+
+	ErrMakingPublic = errors.New("making public")
+	ErrSaving       = errors.New("saving")
+	ErrDeleting     = errors.New("deleting")
+)
+
 var rnd = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 // Message is a transcribed section of a conversation.
@@ -50,14 +58,23 @@ func (s ByTime) Less(i, j int) bool { return s[i].Offset < s[j].Offset }
 
 // Client wraps google `storage` and `speech` clients.
 type Client struct {
-	// Set to true in order to store the original recording in google storage.
-	StoreOriginal bool
-	// Set to true to store the split recording files in google storage.
+	// Required: Google storage bucket to use
+	StorageBucket string
+	// Required: Google storage client
+	Storage *storage.Client
+	// Required: Google speech client
+	Speech *speech.Client
+
+	/* OPTIONS */
+
+	// Set to true in order to store the original recording in google storage
+	StoreOriginal      bool
+	MakeOriginalPublic bool
+
+	// Set to true to store the split recording files in google storage
 	KeepIntermediateFiles bool
-	// Google storage bucket to use.
-	StorageBucket   string
-	Storage         *storage.Client
-	Speech          *speech.Client
+
+	// Phrases to seed the speech recognition with
 	Phrases         []string
 	ProfanityFilter bool
 }
@@ -83,37 +100,54 @@ func (c *Client) TranscribeURL(ctx context.Context, url, name string) (msgs []Me
 	rightName := name + ".right.wav"
 
 	bkt := c.Storage.Bucket(c.StorageBucket)
+	var origW io.Writer
+	if c.StoreOriginal {
+		origObj := bkt.Object(origName)
+
+		if c.MakeOriginalPublic {
+			defer func() {
+				err := origObj.ACL().Set(ctx, storage.AllUsers, storage.RoleReader)
+				if err != nil {
+					rerr = multierror.Append(rerr, errors.Wrapf(ErrMakingPublic, "original file: %s", err))
+				}
+			}()
+		}
+
+		origObjW := origObj.NewWriter(ctx)
+		defer func() {
+			if err := origObjW.Close(); err != nil {
+				rerr = multierror.Append(rerr, errors.Wrapf(ErrSaving, "original file: %s", err))
+			}
+		}()
+		origW = origObjW
+	}
+	leftObj := bkt.Object(leftName)
+	rightObj := bkt.Object(rightName)
 
 	if !c.KeepIntermediateFiles {
 		// Cleanup gcloud storage objects.
 		defer func() {
-			if err := bkt.Object(leftName).Delete(ctx); err != nil && err != storage.ErrObjectNotExist {
-				rerr = multierror.Append(rerr, errors.Wrap(err, "deleting left channel file from gcloud"))
+			if err := leftObj.Delete(ctx); err != nil && err != storage.ErrObjectNotExist {
+				rerr = multierror.Append(rerr, errors.Wrapf(ErrDeleting, "left channel file: %s", err))
 			}
-			if err := bkt.Object(rightName).Delete(ctx); err != nil && err != storage.ErrObjectNotExist {
-				rerr = multierror.Append(rerr, errors.Wrap(err, "deleting right channel file from gcloud"))
+			if err := rightObj.Delete(ctx); err != nil && err != storage.ErrObjectNotExist {
+				rerr = multierror.Append(rerr, errors.Wrapf(ErrDeleting, "right channel file: %s", err))
 			}
 		}()
 	}
 
-	var origW io.Writer
-	if c.StoreOriginal {
-		origObj := bkt.Object(origName).NewWriter(ctx)
-		defer origObj.Close()
-		origW = origObj
-	}
-	leftObj := bkt.Object(leftName).NewWriter(ctx)
-	rightObj := bkt.Object(rightName).NewWriter(ctx)
-	if err := splitWavChannels(resp.Body, origW, leftObj, rightObj); err != nil {
+	leftW := leftObj.NewWriter(ctx)
+	rightW := rightObj.NewWriter(ctx)
+	if err := splitWavChannels(resp.Body, origW, leftW, rightW); err != nil {
 		return nil, errors.Wrap(err, "splitting wav")
 	}
 
 	// Close must be called before another process can read.
-	if err := leftObj.Close(); err != nil {
-		rightObj.Close()
+	if err := leftW.Close(); err != nil {
+		rightW.Close()
 		return nil, errors.Wrap(err, "closing left gcloud storage writer")
 	}
-	if err := rightObj.Close(); err != nil {
+	if err := rightW.Close(); err != nil {
 		return nil, errors.Wrap(err, "closing right gcloud storage writer")
 	}
 
